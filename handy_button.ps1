@@ -2,7 +2,9 @@
 
 # Handy floating record button - pure Windows built-ins (PowerShell + WinForms).
 # Left click : start Handy if needed, then toggle recording.
-# Right click: toggle a small popup menu (autostart checkbox / exit).
+# Right click: NATIVE context menu (autostart checkbox / exit). Using the OS
+#              menu avoids all the focus/state bugs of a hand-rolled popup.
+# The button itself never steals focus, so transcribed text lands where you type.
 # Button color follows Handy's REAL state from its log, never a guessed timer.
 # UI strings use Unicode code points so the file has no encoding dependencies.
 
@@ -32,6 +34,9 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class HandyNative {
+    const int NOACTIVATE = 0x08000000;
+    public static int AddNoActivate(int ex)    { return ex | NOACTIVATE; }
+    public static int ClearNoActivate(int ex)  { return ex & ~NOACTIVATE; }
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll", SetLastError = true)]
@@ -40,8 +45,6 @@ public class HandyNative {
     public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")]
-    public static extern IntPtr GetForegroundWindow();
 }
 '@
 
@@ -84,14 +87,12 @@ $script:down = New-Object System.Drawing.Point
 $script:origin = New-Object System.Drawing.Point
 $script:displayState = -1
 
-$TEXT_IDLE = [string][char]0x5F55                                        # record
-$TEXT_REC  = [string][char]0x505C                                        # stop
-$TEXT_BUSY = [string][char]0x2026                                        # ...
+$TEXT_IDLE = [string][char]0x5F55
+$TEXT_REC  = [string][char]0x505C
+$TEXT_BUSY = [string][char]0x2026
 $TEXT_TIP  = [string][char]0x5DE6+[string][char]0x952E+[string][char]0x5F55+[string][char]0x97F3+[string][char]0xFF0C+[string][char]0x53F3+[string][char]0x952E+[string][char]0x83DC+[string][char]0x5355
 $TEXT_AUTO = [string][char]0x5F00+[string][char]0x673A+[string][char]0x81EA+[string][char]0x542F
 $TEXT_EXIT = [string][char]0x9000+[string][char]0x51FA+[string][char]0xFF08+[string][char]0x540C+[string][char]0x65F6+[string][char]0x5173+[string][char]0x95ED+' Handy'+[string][char]0xFF09
-$CHK_ON  = [string][char]0x2611
-$CHK_OFF = [string][char]0x2610
 
 $script:AutoStartCmd = Join-Path ([Environment]::GetFolderPath('Startup')) 'HandyButton.cmd'
 $script:Launcher = Join-Path (Split-Path -Parent $PSCommandPath) 'Start Handy button.vbs'
@@ -125,34 +126,23 @@ $form.Add_Paint({
 $tip = New-Object System.Windows.Forms.ToolTip
 $tip.SetToolTip($form, $TEXT_TIP)
 
-# --- Custom popup menu --------------------------------------------------------
-$menuForm = New-Object System.Windows.Forms.Form
-$menuForm.FormBorderStyle = 'FixedSingle'; $menuForm.TopMost = $true
-$menuForm.ShowInTaskbar = $false; $menuForm.StartPosition = 'Manual'
-$menuForm.ClientSize = New-Object System.Drawing.Size(196, 76)
-$menuForm.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 250)
+# --- NATIVE context menu ------------------------------------------------------
+# The OS owns all show/hide/click-outside/Esc behaviour, so it can never get
+# stuck in a "won't reopen" state the way a hand-rolled popup window did.
+$ctx = New-Object System.Windows.Forms.ContextMenuStrip
+$ctx.ShowImageMargin = $false
+$ctx.Font = New-Object System.Drawing.Font('Microsoft YaHei', 10)
 
-function New-MenuItem([string]$text, [int]$top) {
-    $l = New-Object System.Windows.Forms.Label
-    $l.Text = $text; $l.Dock = 'None'
-    $l.Location = New-Object System.Drawing.Point(0, $top)
-    $l.Size = New-Object System.Drawing.Size(196, 38)
-    $l.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-    $l.Padding = New-Object System.Windows.Forms.Padding(14, 0, 0, 0)
-    $l.Font = New-Object System.Drawing.Font('Microsoft YaHei', 10)
-    $l.Cursor = [System.Windows.Forms.Cursors]::Hand
-    return $l
-}
-$autoItem = New-MenuItem '' 0
-$exitItem = New-MenuItem $TEXT_EXIT 38
-$menuForm.Controls.Add($autoItem)
-$menuForm.Controls.Add($exitItem)
+$autoMi = New-Object System.Windows.Forms.ToolStripMenuItem
+$exitMi = New-Object System.Windows.Forms.ToolStripMenuItem
+$autoMi.Text = $TEXT_AUTO
+$exitMi.Text = $TEXT_EXIT
+[void]$ctx.Items.Add($autoMi)
+[void]$ctx.Items.Add($exitMi)
 
-function Update-AutoItem {
-    $mark = if (Test-Path $script:AutoStartCmd) { $CHK_ON } else { $CHK_OFF }
-    $autoItem.Text = $mark + ' ' + $TEXT_AUTO
-}
-$autoItem.Add_Click({
+function Update-AutoItem { $autoMi.Checked = (Test-Path $script:AutoStartCmd) }
+
+$autoMi.Add_Click({
     if (Test-Path $script:AutoStartCmd) {
         Remove-Item $script:AutoStartCmd -Force -ErrorAction SilentlyContinue
     } else {
@@ -160,45 +150,25 @@ $autoItem.Add_Click({
         [System.IO.File]::WriteAllText($script:AutoStartCmd, $line)
     }
     Update-AutoItem
-    Hide-Menu
 })
-$exitItem.Add_Click({
+$exitMi.Add_Click({
     Get-Process -Name handy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     [System.Windows.Forms.Application]::Exit()
 })
 
-# --- Menu show/hide -----------------------------------------------------------
-# No global IMessageFilter: on a WS_EX_NOACTIVATE host it makes the menu's
-# visible-state tracking unreliable (menu stops reappearing after close).
-# Instead: close on item click (above), on button click, and when the menu
-# loses activation (clicking anywhere else) via Deactivate + a watchdog timer.
+# A WS_EX_NOACTIVATE host makes a native menu unable to take focus (won't
+# auto-close). Clear the flag just before showing; restore it as soon as the
+# menu closes so the button still never steals typing focus.
+$ctx.Add_Closed({
+    $h = $form.Handle
+    [HandyNative]::SetWindowLong($h, -20, [HandyNative]::AddNoActivate([HandyNative]::GetWindowLong($h, -20))) | Out-Null
+})
 function Show-Menu {
     Update-AutoItem
-    $x = [Math]::Min([System.Windows.Forms.Control]::MousePosition.X, $wa.Right - $menuForm.Width - 8)
-    $y = [Math]::Min([System.Windows.Forms.Control]::MousePosition.Y, $wa.Bottom - $menuForm.Height - 8)
-    $menuForm.Location = New-Object System.Drawing.Point($x, $y)
-    $script:menuShownAt = Get-Date
-    $menuForm.Show()
-    $menuForm.BringToFront()
-    $menuForm.Activate()
+    $h = $form.Handle
+    [HandyNative]::SetWindowLong($h, -20, [HandyNative]::ClearNoActivate([HandyNative]::GetWindowLong($h, -20))) | Out-Null
+    $ctx.Show([System.Windows.Forms.Cursor]::Position)
 }
-function Hide-Menu {
-    if ($menuForm.Visible) { $menuForm.Hide() }
-}
-$menuForm.Add_Deactivate({ Hide-Menu })
-
-$script:menuShownAt = $null
-$menuWatch = New-Object System.Windows.Forms.Timer
-$menuWatch.Interval = 200
-$menuWatch.Add_Tick({
-    if (-not $menuForm.Visible) { return }
-    if ($script:menuShownAt -and (((Get-Date) - $script:menuShownAt).TotalMilliseconds -lt 700)) { return }
-    $fg = [HandyNative]::GetForegroundWindow()
-    if ($fg -eq [IntPtr]::Zero) { return }
-    if ($fg -eq $menuForm.Handle) { return }
-    Hide-Menu
-})
-$menuWatch.Start()
 
 # --- Read Handy's real state from log ----------------------------------------
 function Get-RealState {
@@ -254,7 +224,7 @@ $form.Add_MouseDown({
         $script:down = [System.Windows.Forms.Control]::MousePosition
         $script:origin = $form.Location
     } elseif ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
-        if ($menuForm.Visible) { Hide-Menu } else { Show-Menu }
+        Show-Menu
     }
 })
 $form.Add_MouseMove({
@@ -268,7 +238,6 @@ $form.Add_MouseMove({
 $form.Add_MouseUp({
     if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:dragging = $false
-        if ($menuForm.Visible) { Hide-Menu; return }
         if (-not $script:moved) {
             $p = $form.PointToClient([System.Windows.Forms.Control]::MousePosition)
             $cx = $size / 2.0
@@ -281,8 +250,7 @@ $form.Add_MouseUp({
 
 $form.Add_Shown({
     $h = $form.Handle
-    $ex = [HandyNative]::GetWindowLong($h, -20)
-    [HandyNative]::SetWindowLong($h, -20, ($ex -bor 0x08000000)) | Out-Null  # WS_EX_NOACTIVATE
+    [HandyNative]::SetWindowLong($h, -20, [HandyNative]::AddNoActivate([HandyNative]::GetWindowLong($h, -20))) | Out-Null
     Apply-State (Get-RealState)
     $poll.Start()
 })
