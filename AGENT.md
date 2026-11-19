@@ -7,8 +7,8 @@
 ## 0. 铁律(任何情况下不得违反)
 
 1. **只从官方源下载**:Handy 只从 `github.com/cjpais/Handy/releases` 下载;模型只从 `huggingface.co/handy-computer/...` 或其官方镜像 `blob.handy.computer` 下载。**禁止 winget、禁止第三方打包版**。
-2. **不扩大安装范围**:不安装 Python、CUDA Toolkit、Docker、FFmpeg、语音框架;不改动用户已有的任何环境(尤其是 Qwen3TTS / GPTSoVITS 等)。
-3. **数据全部落在用户指定目录**:默认 `D:\AIVoice\Handy`。用 Tauri 便携模式使配置/模型/日志/录音都进 exe 旁的 `Data\`,**C 盘 AppData 必须零残留**。
+2. **不扩大安装范围**:不安装 Python、CUDA Toolkit、Docker、FFmpeg、语音框架;不改动用户已有的任何环境(例如用户自己搭的 TTS/语音相关项目)。
+3. **数据全部落在用户指定目录**:默认 `<用户选择的目录>\Handy`(例如 `C:\Handy` 或 `D:\Handy`)。用 Tauri 便携模式使配置/模型/日志/录音都进 exe 旁的 `Data\`,**C 盘 AppData 必须零残留**。
 4. **完整性校验**:安装包比对官方字节数;模型比对官方 SHA-256;不符则删除重下。
 5. **隐私默认**:本地识别、云端后处理关闭、所有 API Key 为空、历史记录关闭、自动更新关闭。不改防火墙/Defender、不装证书。
 6. **只装用户确认的模型**:未经用户明确同意,不要下载第二个模型。
@@ -257,7 +257,7 @@ Handy 支持无头转写,用任意 16kHz 单声道 WAV:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File setup.ps1 `
-  -InstallDir 'D:\AIVoice\Handy' -Model qwen3-06b -Backend gpu -Unload min10
+  -InstallDir 'C:\Handy' -Model qwen3-06b -Backend gpu -Unload min10
 ```
 
 参数(详见脚本头注释):`-InstallDir` 目标目录、`-Model sensevoice|qwen3-06b`、`-Backend cpu|gpu`、`-Unload min2|min5|min10|min15|hour1|never`、`-Hotkey`、`-Language`、`-SkipButton`。

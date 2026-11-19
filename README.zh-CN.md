@@ -61,7 +61,7 @@ Handy 本身用键盘快捷键(按住说话)触发录音。这个小小的附加
 不想手动装 Handy、下模型、配隐私项?在 PowerShell 里运行(把路径换成你的):
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -InstallDir 'D:\AIVoice\Handy' -Model sensevoice -Backend cpu -Unload min10
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -InstallDir 'C:\Handy' -Model sensevoice -Backend cpu -Unload min10
 ```
 
 可选参数:`-Model sensevoice|qwen3-06b`、`-Backend cpu|gpu`、`-Unload min5|min10|never`、`-Hotkey ctrl+alt+m`、`-Language zh`、`-SkipButton`。脚本可重复运行,已装好且校验通过的部分会自动跳过。AI 助手部署时直接读脚本头部的参数说明即可。

@@ -37,7 +37,7 @@
     Do not copy the floating button scripts / autostart entry.
 
 .EXAMPLE
-    .\setup.ps1 -InstallDir 'D:\AIVoice\Handy' -Model qwen3-06b -Backend gpu -Unload min10
+    .\setup.ps1 -InstallDir 'C:\Handy' -Model qwen3-06b -Backend gpu -Unload min10
 
 .EXAMPLE
     .\setup.ps1 -Model sensevoice -SkipButton
