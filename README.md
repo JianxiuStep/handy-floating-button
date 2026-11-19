@@ -2,6 +2,8 @@
 
 [English](README.md) · [中文](README.zh-CN.md)
 
+> ⚠️ **Windows only** — this add-on works on **Windows 10/11 only**. It relies on PowerShell WinForms, VBScript and Handy's Windows build; it does not support macOS or Linux.
+
 **A small on-screen button for [Handy](https://handy.computer) — click to start talking, click again to stop. Text appears wherever you're typing. Fully local, free, zero dependencies.**
 
 Handy normally starts and stops recording with a **keyboard hotkey** (push-to-talk). This project adds a small round button on your screen so you can **click to start, click again to stop** — no keyboard required. Useful for touch screens, lying down, or anyone who prefers a mouse.

@@ -2,6 +2,8 @@
 
 [English](README.md) · [中文](README.zh-CN.md)
 
+> ⚠️ **仅支持 Windows** —— 本插件**只适用于 Windows 10/11**。它依赖 PowerShell WinForms、VBScript 和 Handy 的 Windows 版本,**不支持 macOS 或 Linux**。
+
 **给 [Handy](https://handy.computer) 加一个屏幕上的小圆钮:点一下开始说话,再点一下结束——识别出的文字直接打进你正在输入的任何地方。完全本地、免费、零依赖。**
 
 Handy 本身用键盘快捷键(按住说话)触发录音。这个小小的附加组件给你一个**可以用鼠标点击的按钮**,特别适合触摸屏、躺着用、或者单纯不喜欢记快捷键的人。整个项目只有几个纯文本脚本(共约 20KB),**不需要安装 Python、.NET 之外的任何东西,不改注册表,不联网上传任何数据**。
