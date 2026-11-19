@@ -1,0 +1,16 @@
+# Local-only helper: pushes to the maintainer's own GitHub account.
+# Contains a local absolute path; not useful to anyone downloading this repo.
+push-to-github.cmd
+
+# Windows / editor junk
+Thumbs.db
+desktop.ini
+.DS_Store
+*.bak
+*.tmp
+*.log
+
+# Temporary files used during development
+_*.ps1
+_*.png
+_*.log
