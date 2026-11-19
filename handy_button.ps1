@@ -1,8 +1,8 @@
 ﻿param([switch]$Launch)
 
 # Handy floating record button - pure Windows built-ins (PowerShell + WinForms).
-# Left click: start Handy if not running, then toggle recording.
-# Right click: custom popup menu with "autostart" checkbox and "exit".
+# Left click : start Handy if needed, then toggle recording.
+# Right click: toggle a small popup menu (autostart checkbox / exit).
 # Button color follows Handy's REAL state from its log, never a guessed timer.
 # UI strings use Unicode code points so the file has no encoding dependencies.
 
@@ -12,14 +12,13 @@ if ($Launch) {
     exit 0
 }
 
-# --- Single-instance guard: if a button is already running, exit quietly ------
-# Hold the mutex for the whole process lifetime (store in a script-scope var).
+# --- Single-instance guard ----------------------------------------------------
 $script:AppMutex = $null
 $mutexCreated = $false
 try {
     $script:AppMutex = New-Object System.Threading.Mutex($true, 'Local\HandyFloatingButton_Singleton', [ref]$mutexCreated)
 } catch {
-    $mutexCreated = $true   # if mutex creation fails, allow startup rather than block the user
+    $mutexCreated = $true
 }
 if (-not $mutexCreated) {
     if ($script:AppMutex) { $script:AppMutex.Dispose() }
@@ -41,6 +40,8 @@ public class HandyNative {
     public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
 }
 '@
 
@@ -83,16 +84,15 @@ $script:down = New-Object System.Drawing.Point
 $script:origin = New-Object System.Drawing.Point
 $script:displayState = -1
 
-$TEXT_IDLE = [string][char]0x5F55                                        # 录
-$TEXT_REC  = [string][char]0x505C                                        # 停
+$TEXT_IDLE = [string][char]0x5F55                                        # record
+$TEXT_REC  = [string][char]0x505C                                        # stop
 $TEXT_BUSY = [string][char]0x2026                                        # ...
-$TEXT_TIP  = [string][char]0x5DE6+[string][char]0x952E+[string][char]0x5F55+[string][char]0x97F3+[string][char]0xFF0C+[string][char]0x53F3+[string][char]0x952E+[string][char]0x83DC+[string][char]0x5355   # 左键录音，右键菜单
-$TEXT_AUTO = [string][char]0x5F00+[string][char]0x673A+[string][char]0x81EA+[string][char]0x542F           # 开机自启
+$TEXT_TIP  = [string][char]0x5DE6+[string][char]0x952E+[string][char]0x5F55+[string][char]0x97F3+[string][char]0xFF0C+[string][char]0x53F3+[string][char]0x952E+[string][char]0x83DC+[string][char]0x5355
+$TEXT_AUTO = [string][char]0x5F00+[string][char]0x673A+[string][char]0x81EA+[string][char]0x542F
 $TEXT_EXIT = [string][char]0x9000+[string][char]0x51FA+[string][char]0xFF08+[string][char]0x540C+[string][char]0x65F6+[string][char]0x5173+[string][char]0x95ED+' Handy'+[string][char]0xFF09
-$CHK_ON  = [string][char]0x2611                                          # checked box
-$CHK_OFF = [string][char]0x2610                                          # unchecked box
+$CHK_ON  = [string][char]0x2611
+$CHK_OFF = [string][char]0x2610
 
-# Autostart entry points to this folder's launcher
 $script:AutoStartCmd = Join-Path ([Environment]::GetFolderPath('Startup')) 'HandyButton.cmd'
 $script:Launcher = Join-Path (Split-Path -Parent $PSCommandPath) 'Start Handy button.vbs'
 
@@ -125,7 +125,7 @@ $form.Add_Paint({
 $tip = New-Object System.Windows.Forms.ToolTip
 $tip.SetToolTip($form, $TEXT_TIP)
 
-# --- Custom popup menu (works on a no-activate window) ------------------------
+# --- Custom popup menu --------------------------------------------------------
 $menuForm = New-Object System.Windows.Forms.Form
 $menuForm.FormBorderStyle = 'FixedSingle'; $menuForm.TopMost = $true
 $menuForm.ShowInTaskbar = $false; $menuForm.StartPosition = 'Manual'
@@ -160,47 +160,45 @@ $autoItem.Add_Click({
         [System.IO.File]::WriteAllText($script:AutoStartCmd, $line)
     }
     Update-AutoItem
-    $menuForm.Hide()
+    Hide-Menu
 })
 $exitItem.Add_Click({
     Get-Process -Name handy -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     [System.Windows.Forms.Application]::Exit()
 })
 
-# Global click filter: close the menu when clicking outside it and outside the button
-Add-Type -ReferencedAssemblies 'System.Windows.Forms','System.Drawing' -TypeDefinition @'
-using System;
-using System.Windows.Forms;
-using System.Drawing;
-public class MenuClickFilter : IMessageFilter {
-    public Form Popup;
-    public Form Owner;
-    public bool PreFilterMessage(ref Message m) {
-        if (Popup == null || !Popup.Visible) return false;
-        if (m.Msg == 0x0201 || m.Msg == 0x0204) {
-            Point p = Cursor.Position;
-            bool inPopup = Popup.Bounds.Contains(p);
-            bool inOwner = Owner != null && Owner.Bounds.Contains(p);
-            if (!inPopup && !inOwner) Popup.Hide();
-        }
-        return false;
-    }
-}
-'@
-$clickFilter = New-Object MenuClickFilter
-$clickFilter.Popup = $menuForm
-$clickFilter.Owner = $form
-[System.Windows.Forms.Application]::AddMessageFilter($clickFilter)
-
+# --- Menu show/hide -----------------------------------------------------------
+# No global IMessageFilter: on a WS_EX_NOACTIVATE host it makes the menu's
+# visible-state tracking unreliable (menu stops reappearing after close).
+# Instead: close on item click (above), on button click, and when the menu
+# loses activation (clicking anywhere else) via Deactivate + a watchdog timer.
 function Show-Menu {
     Update-AutoItem
-    $p = [System.Windows.Forms.Control]::MousePosition
-    $x = [Math]::Min($p.X, $wa.Right - $menuForm.Width - 8)
-    $y = [Math]::Min($p.Y, $wa.Bottom - $menuForm.Height - 8)
+    $x = [Math]::Min([System.Windows.Forms.Control]::MousePosition.X, $wa.Right - $menuForm.Width - 8)
+    $y = [Math]::Min([System.Windows.Forms.Control]::MousePosition.Y, $wa.Bottom - $menuForm.Height - 8)
     $menuForm.Location = New-Object System.Drawing.Point($x, $y)
+    $script:menuShownAt = Get-Date
     $menuForm.Show()
     $menuForm.BringToFront()
+    $menuForm.Activate()
 }
+function Hide-Menu {
+    if ($menuForm.Visible) { $menuForm.Hide() }
+}
+$menuForm.Add_Deactivate({ Hide-Menu })
+
+$script:menuShownAt = $null
+$menuWatch = New-Object System.Windows.Forms.Timer
+$menuWatch.Interval = 200
+$menuWatch.Add_Tick({
+    if (-not $menuForm.Visible) { return }
+    if ($script:menuShownAt -and (((Get-Date) - $script:menuShownAt).TotalMilliseconds -lt 700)) { return }
+    $fg = [HandyNative]::GetForegroundWindow()
+    if ($fg -eq [IntPtr]::Zero) { return }
+    if ($fg -eq $menuForm.Handle) { return }
+    Hide-Menu
+})
+$menuWatch.Start()
 
 # --- Read Handy's real state from log ----------------------------------------
 function Get-RealState {
@@ -256,7 +254,7 @@ $form.Add_MouseDown({
         $script:down = [System.Windows.Forms.Control]::MousePosition
         $script:origin = $form.Location
     } elseif ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) {
-        if ($menuForm.Visible) { $menuForm.Hide() } else { Show-Menu }
+        if ($menuForm.Visible) { Hide-Menu } else { Show-Menu }
     }
 })
 $form.Add_MouseMove({
@@ -270,7 +268,7 @@ $form.Add_MouseMove({
 $form.Add_MouseUp({
     if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         $script:dragging = $false
-        if ($menuForm.Visible) { $menuForm.Hide(); return }
+        if ($menuForm.Visible) { Hide-Menu; return }
         if (-not $script:moved) {
             $p = $form.PointToClient([System.Windows.Forms.Control]::MousePosition)
             $cx = $size / 2.0
