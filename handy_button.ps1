@@ -12,6 +12,20 @@ if ($Launch) {
     exit 0
 }
 
+# --- Single-instance guard: if a button is already running, exit quietly ------
+# Hold the mutex for the whole process lifetime (store in a script-scope var).
+$script:AppMutex = $null
+$mutexCreated = $false
+try {
+    $script:AppMutex = New-Object System.Threading.Mutex($true, 'Local\HandyFloatingButton_Singleton', [ref]$mutexCreated)
+} catch {
+    $mutexCreated = $true   # if mutex creation fails, allow startup rather than block the user
+}
+if (-not $mutexCreated) {
+    if ($script:AppMutex) { $script:AppMutex.Dispose() }
+    exit 0
+}
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
